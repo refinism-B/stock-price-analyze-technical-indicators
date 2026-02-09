@@ -3,18 +3,19 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import requests
 import datetime
 import json
 from openai import OpenAI
 import google.generativeai as genai
 
+# Import backend module
+from src.backend.market_data import get_stock_data, calculate_technical_indicators, filter_data_by_date
+
 # 請確保 secret.py 檔案存在並包含正確的 KEY，或是直接在環境變數中設定
 try:
-    from secret import FMP_KEY, GOOGLE_KEY, OPENAI_KEY
+    from secret import GOOGLE_KEY, OPENAI_KEY
 except ImportError:
     # 若無 secret 檔案，預設為空，請使用者在介面輸入
-    FMP_KEY = ""
     GOOGLE_KEY = ""
     OPENAI_KEY = ""
 
@@ -27,110 +28,6 @@ st.set_page_config(
 )
 
 # --- 輔助函數區 ---
-
-
-@st.cache_data(ttl=3600)
-def get_stock_data(symbol, api_key, start_date, end_date):
-    """
-    從 FMP API 獲取指定日期範圍的股票歷史數據
-    """
-    s_date = start_date.strftime('%Y-%m-%d')
-    e_date = end_date.strftime('%Y-%m-%d')
-
-    url = f"https://financialmodelingprep.com/stable/historical-price-eod/full?symbol={symbol}&from={s_date}&to={e_date}&apikey={api_key}"
-
-    try:
-        response = requests.get(url, timeout=15)
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            return None, f"API 回傳非 JSON 格式 (Status: {response.status_code})"
-
-        if isinstance(data, dict) and "Error Message" in data:
-            return None, f"FMP API 錯誤: {data['Error Message']}"
-
-        if response.status_code != 200:
-            return None, f"HTTP 請求失敗 (代碼: {response.status_code})"
-
-        df = None
-        if isinstance(data, list) and len(data) > 0:
-            df = pd.DataFrame(data)
-        elif isinstance(data, dict) and 'historical' in data:
-            df = pd.DataFrame(data['historical'])
-        elif isinstance(data, dict) and symbol in data:
-            df = pd.DataFrame(data[symbol])
-
-        if df is None or df.empty:
-            return None, f"該日期區間 ({s_date} ~ {e_date}) 無交易數據，或股票代碼錯誤。"
-
-        df.columns = [c.lower() for c in df.columns]
-        required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
-        missing_cols = [c for c in required_cols if c not in df.columns]
-
-        if missing_cols:
-            return None, f"數據缺少必要欄位: {', '.join(missing_cols)}"
-
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.sort_values('date', ascending=True).reset_index(drop=True)
-
-        return df, None
-
-    except requests.exceptions.RequestException as e:
-        return None, f"網路連線錯誤: {str(e)}"
-    except Exception as e:
-        return None, f"程式處理錯誤: {str(e)}"
-
-
-def calculate_technical_indicators(df, rsi_days=14, kd_days=9):
-    """
-    計算移動平均線、RSI 與 KD 指標
-    KD 參數預設: 9, 3, 3
-    """
-    df = df.copy()
-
-    # 1. 計算 MA (移動平均線)
-    df['MA5'] = df['close'].rolling(window=5).mean()
-    df['MA10'] = df['close'].rolling(window=10).mean()
-    df['MA20'] = df['close'].rolling(window=20).mean()
-    df['MA60'] = df['close'].rolling(window=60).mean()
-
-    # 2. 計算 RSI
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).fillna(0)
-    loss = (-delta.where(delta < 0, 0)).fillna(0)
-    avg_gain = gain.ewm(com=rsi_days - 1, min_periods=rsi_days).mean()
-    avg_loss = loss.ewm(com=rsi_days - 1, min_periods=rsi_days).mean()
-    rs = avg_gain / avg_loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-
-    # 3. 計算 KD (Stochastic Oscillator)
-    # RSV 公式: (今日收盤 - 最近n天最低) / (最近n天最高 - 最近n天最低) * 100
-    low_min = df['low'].rolling(window=kd_days).min()
-    high_max = df['high'].rolling(window=kd_days).max()
-
-    # 避免分母為 0
-    df['RSV'] = 100 * (df['close'] - low_min) / (high_max - low_min)
-    df['RSV'] = df['RSV'].fillna(50)  # 補值避免初期計算錯誤
-
-    # 計算 K 與 D
-    # 公式: K = 1/3 * RSV + 2/3 * 前一日K
-    # 這等同於 pandas 的 ewm(alpha=1/3)
-    # 我們設定 adjust=False 來模擬遞迴計算
-
-    df['K'] = df['RSV'].ewm(alpha=1/3, adjust=False).mean()
-    df['D'] = df['K'].ewm(alpha=1/3, adjust=False).mean()
-
-    return df
-
-
-def filter_data_by_date(df, start_date, end_date):
-    """
-    根據使用者選擇的日期範圍過濾數據
-    """
-    mask = (df['date'].dt.date >= start_date) & (
-        df['date'].dt.date <= end_date)
-    return df.loc[mask].reset_index(drop=True)
-
 
 def create_chart(df, symbol):
     """
@@ -401,8 +298,7 @@ def main():
         st.divider()
 
         stock_symbol = st.text_input("股票代碼", value="AAPL").upper()
-        fmp_api_key = st.text_input(
-            "FMP API Key", type="password", value=FMP_KEY)
+        # fmp_api_key removed
 
         st.markdown("---")
         st.subheader("🤖 AI 模型")
@@ -430,7 +326,8 @@ def main():
 
         st.markdown("---")
         today = datetime.date.today()
-        default_start = today - datetime.timedelta(days=120)
+        # Modified default start date to 180 days
+        default_start = today - datetime.timedelta(days=180)
         start_date_input = st.date_input("起始日期", value=default_start)
         end_date_input = st.date_input("結束日期", value=today)
 
@@ -442,8 +339,8 @@ def main():
 
     # --- 執行邏輯 ---
     if analyze_btn:
-        if not stock_symbol or not fmp_api_key or not ai_api_key:
-            st.warning(f"請輸入完整 API Key 資訊。")
+        if not stock_symbol or not ai_api_key:
+            st.warning(f"請輸入完整 API Key 資訊 (已自動省略 FMP Key)。")
         else:
             with st.spinner(f"正在獲取 {stock_symbol} 數據並計算 KD/RSI..."):
 
@@ -452,8 +349,9 @@ def main():
                 api_start_date = start_date_input - \
                     datetime.timedelta(days=buffer_days)
 
+                # using new backend function
                 raw_df, error_msg = get_stock_data(
-                    stock_symbol, fmp_api_key, api_start_date, end_date_input)
+                    stock_symbol, api_start_date, end_date_input)
 
                 if error_msg:
                     st.error(error_msg)

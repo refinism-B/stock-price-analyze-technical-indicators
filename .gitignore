@@ -212,3 +212,6 @@ poetry.lock
 pyproject.toml
 /.streamlit
 /.agent
+AGENTS_LOG.md
+/test
+verify_refactor.py
