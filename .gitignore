@@ -211,3 +211,4 @@ __marimo__/
 poetry.lock
 pyproject.toml
 /.streamlit
+/.agent

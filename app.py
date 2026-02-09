@@ -425,7 +425,6 @@ def main():
         rsi_days = st.number_input("RSI 週期", value=14)
 
         # 新增 KD 參數輸入
-        st.write("KD 隨機指標")
         kd_days = st.number_input(
             "KD 計算天數 (RSV週期)", min_value=5, max_value=60, value=9, step=1)
 
