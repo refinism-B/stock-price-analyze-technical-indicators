@@ -1,8 +1,9 @@
-from dotenv import load_dotenv
-import os
+# from dotenv import load_dotenv
+# import os
+import streamlit as st
 
-load_dotenv()
+# load_dotenv()
 
-GOOGLE_KEY = os.environ.get("GEMINI_KEY")
-OPENAI_KEY = os.environ.get("OPENAI_KEY")
-FMP_KEY = os.environ.get("FMP_KEY")
+GOOGLE_KEY = st.secrets["GEMINI_KEY"]
+OPENAI_KEY = st.secrets["OPENAI_KEY"]
+FMP_KEY = st.secrets["FMP_KEY"]

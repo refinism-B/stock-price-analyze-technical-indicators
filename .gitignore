@@ -210,3 +210,4 @@ __marimo__/
 /教材
 poetry.lock
 pyproject.toml
+/.streamlit
